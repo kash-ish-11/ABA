@@ -5,5 +5,8 @@ scikit-learn
 matplotlib
 openpyxl
 seaborn
+scipy
+statsmodels
+
 
 
