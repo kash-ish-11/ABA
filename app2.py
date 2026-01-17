@@ -3,6 +3,8 @@ import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 import seaborn as sns
+import statsmodels.api as sm
+from scipy import stats
 
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import LabelEncoder, StandardScaler
@@ -16,12 +18,23 @@ from sklearn.metrics import (
 
 st.set_page_config(page_title="ML Demonstration Tool", layout="wide")
 st.title("📊 Machine Learning Demonstration Tool")
-st.write("Upload any Excel/CSV file to understand Machine Learning step-by-step.")
+
+st.write("""
+This tool demonstrates **Machine Learning concepts step-by-step** using real business data.
+It is designed for **easy understanding by management and non-technical users**.
+""")
 
 # =====================================================
 # FILE UPLOAD
 # =====================================================
 uploaded_file = st.file_uploader("Upload Excel or CSV file", type=["xlsx", "csv"])
+
+st.info("""
+📂 **Dataset Upload**
+- Upload any Excel or CSV file.
+- The system automatically identifies variable types.
+- No prior data preparation is required.
+""")
 
 if uploaded_file:
 
@@ -34,39 +47,46 @@ if uploaded_file:
     # =====================================================
     # SMART COLUMN DETECTION
     # =====================================================
-    cat_cols = []
-    num_cols = []
+    cat_cols, num_cols = [], []
 
     for col in df.columns:
         unique_vals = df[col].dropna().unique()
-
         if df[col].dtype == "object":
             cat_cols.append(col)
         elif len(unique_vals) <= 10 and set(unique_vals).issubset({0, 1}):
-            cat_cols.append(col)  # binary numeric → categorical (e.g. Churn)
+            cat_cols.append(col)
         else:
             num_cols.append(col)
 
     st.write("Categorical Columns:", cat_cols)
     st.write("Numerical Columns:", num_cols)
 
+    st.info("""
+🧠 **Automatic Variable Detection**
+- Categorical variables → Classification
+- Numerical variables → Regression & Clustering
+- Binary (0/1) variables → Classification targets
+""")
+
     # =====================================================
     # EDA
     # =====================================================
     st.subheader("🔹 Exploratory Data Analysis (EDA)")
-
-    st.write("Missing Values (%)")
     st.dataframe((df.isnull().sum() / len(df)) * 100)
 
     if num_cols:
-        st.subheader("Summary Statistics")
         st.dataframe(df[num_cols].describe())
+
+    st.info("""
+🔍 **EDA Purpose**
+- Identifies missing values and data quality issues
+- Helps understand scale, spread, and distributions
+- Foundation for reliable modeling
+""")
 
     # =====================================================
     # PREPROCESSING
     # =====================================================
-    st.subheader("🔹 Data Preprocessing")
-
     df_clean = df.copy()
 
     for col in df_clean.columns:
@@ -76,41 +96,32 @@ if uploaded_file:
         else:
             df_clean[col].fillna(df_clean[col].mean(), inplace=True)
 
-    st.success("Data cleaned and encoded successfully")
-
     scaler = StandardScaler()
 
-    # =====================================================
-    # CORRELATION ANALYSIS
-    # =====================================================
-    st.subheader("🔗 Correlation Analysis")
+    st.info("""
+🛠 **Data Preprocessing**
+- Missing values handled automatically
+- Categorical values encoded numerically
+- Numerical variables standardized where required
+""")
 
+    # =====================================================
+    # CORRELATION
+    # =====================================================
     if len(num_cols) >= 2:
-        corr_matrix = df_clean[num_cols].corr()
+        corr = df_clean[num_cols].corr()
+        st.dataframe(corr.round(3))
 
-        st.subheader("📊 Correlation Matrix")
-        st.dataframe(corr_matrix.round(3))
-
-        st.subheader("🔥 Correlation Heatmap")
         fig, ax = plt.subplots(figsize=(8, 6))
-        sns.heatmap(
-            corr_matrix,
-            annot=True,
-            fmt=".2f",
-            cmap="coolwarm",
-            center=0,
-            linewidths=0.5,
-            ax=ax
-        )
-        ax.set_title("Correlation Heatmap")
+        sns.heatmap(corr, annot=True, cmap="coolwarm", center=0, ax=ax)
         st.pyplot(fig)
 
         st.info("""
-        Interpretation:
-        • Values near +1 indicate strong positive relationship
-        • Values near −1 indicate strong negative relationship
-        • Values near 0 indicate weak or no relationship
-        """)
+🔗 **Correlation Analysis**
+- Measures relationship between numerical variables
+- Helps detect multicollinearity
+- Important before regression modeling
+""")
 
     # =====================================================
     # ANALYSIS TYPE
@@ -127,6 +138,29 @@ if uploaded_file:
 
         st.subheader("📈 Linear Regression")
 
+        st.info("""
+📈 **Regression Objective**
+- Predicts a numerical target variable
+- Explains how input variables impact the outcome
+""")
+
+        confidence_level = st.selectbox(
+            "Select Confidence Level",
+            ["90%", "95%", "99%"],
+            index=1
+        )
+
+        alpha_map = {"90%": 0.10, "95%": 0.05, "99%": 0.01}
+        alpha = alpha_map[confidence_level]
+
+        st.info("""
+📐 **Confidence Level**
+- α = 1 − Confidence Level
+- Used for:
+  • Overall model significance (ANOVA)
+  • Individual variable significance (p-values)
+""")
+
         target = st.selectbox("Select Target Variable (Numeric)", num_cols)
 
         X = df_clean.drop(columns=[target])
@@ -136,60 +170,129 @@ if uploaded_file:
             X, y, test_size=0.2, random_state=42
         )
 
-        X_train = scaler.fit_transform(X_train)
-        X_test = scaler.transform(X_test)
+        X_train_s = scaler.fit_transform(X_train)
+        X_test_s = scaler.transform(X_test)
 
         model = LinearRegression()
-        model.fit(X_train, y_train)
-        preds = model.predict(X_test)
+        model.fit(X_train_s, y_train)
+        preds = model.predict(X_test_s)
 
         r2 = r2_score(y_test, preds)
-        st.write("R² Score:", round(r2, 3))
 
-        if r2 < 0:
-            st.warning("⚠️ Negative R² means the model performs worse than predicting the average.")
+        st.subheader("📐 Model Fit Metrics")
+        st.dataframe(pd.DataFrame({
+            "Metric": ["R²", "Absolute R²"],
+            "Value": [round(r2, 4), round(abs(r2), 4)]
+        }))
 
-        # ---- Actual vs Predicted (Clear)
-        fig, ax = plt.subplots(figsize=(8, 5))
-        ax.scatter(range(len(y_test)), y_test, color="blue", label="Actual Values")
-        ax.scatter(range(len(preds)), preds, color="orange", label="Predicted Values")
-        ax.plot(range(len(preds)), preds, linestyle="--", color="red", label="Prediction Trend")
-        ax.set_xlabel("Observation Index")
-        ax.set_ylabel("Target Value")
-        ax.set_title("Actual vs Predicted")
+        st.info("""
+📊 **R² Interpretation**
+- Measures how much variation is explained by the model
+- Absolute R² avoids confusion if R² is negative
+- R² does NOT depend on confidence level
+""")
+
+        # Actual vs Predicted
+        st.subheader("📋 Actual vs Predicted")
+
+        avp_df = pd.DataFrame({
+            "Actual": y_test.values,
+            "Predicted": preds,
+            "Residual": y_test.values - preds
+        })
+        st.dataframe(avp_df.head(20))
+
+        fig, ax = plt.subplots(figsize=(7, 4))
+        ax.scatter(range(len(y_test)), y_test, label="Actual")
+        ax.scatter(range(len(preds)), preds, label="Predicted")
+        ax.plot(range(len(preds)), preds, linestyle="--", color="red")
         ax.legend()
         st.pyplot(fig)
 
-        # ---- Table View
-        st.subheader("📋 Actual vs Predicted (Table)")
-        results_df = pd.DataFrame({
-            "Actual Value": y_test.values,
-            "Predicted Value": preds,
-            "Difference (Actual - Predicted)": y_test.values - preds
-        })
-        st.dataframe(results_df.head(20))
+        st.info("""
+📋 **Actual vs Predicted**
+- Shows real vs model-generated values
+- Residual indicates prediction error
+""")
 
-        # ---- Coefficient Table
+        # Coefficients
         coef_df = pd.DataFrame({
             "Variable": X.columns,
             "Coefficient": model.coef_
         })
-        coef_df["Impact"] = coef_df["Coefficient"].apply(
-            lambda x: "Positive ↑" if x > 0 else "Negative ↓"
-        )
-
-        st.subheader("📊 Regression Coefficients")
         st.dataframe(coef_df.round(4))
 
-        # ---- Regression Equation
-        intercept = model.intercept_
-        equation = f"{target} = {round(intercept, 3)}"
-        for var, coef in zip(X.columns, model.coef_):
-            sign = "+" if coef >= 0 else "-"
-            equation += f" {sign} {abs(coef):.3f} × {var}"
+        st.info("""
+📊 **Coefficients**
+- Positive → direct relationship
+- Negative → inverse relationship
+""")
 
-        st.subheader("🧮 Regression Equation")
+        # P-values
+        X_sm = sm.add_constant(X)
+        sm_model = sm.OLS(y, X_sm).fit()
+
+        pval_df = pd.DataFrame({
+            "Variable": sm_model.params.index,
+            "Coefficient": sm_model.params.values,
+            "P-value": sm_model.pvalues.values,
+            "Include (p < α)": ["Yes" if p < alpha else "No" for p in sm_model.pvalues]
+        })
+
+        st.subheader("📊 Coefficient Significance (P-values)")
+        st.dataframe(pval_df.round(6))
+
+        st.info("""
+📉 **P-value Decision Rule**
+- p < α → variable is statistically significant
+- Only significant variables should be used for interpretation
+""")
+
+        # Regression Equation
+        significant_terms = [
+            f"{c:.3f} × {v}" for v, c, p in zip(
+                pval_df["Variable"], pval_df["Coefficient"], pval_df["P-value"]
+            ) if v != "const" and p < alpha
+        ]
+
+        equation = f"{target} = " + " + ".join(significant_terms) if significant_terms else \
+            "No statistically significant predictors"
+
+        st.subheader("🧮 Regression Equation (Significant Variables Only)")
         st.code(equation)
+
+        # ANOVA
+        y_hat = sm_model.predict(X_sm)
+        y_mean = np.mean(y)
+
+        ss_total = np.sum((y - y_mean) ** 2)
+        ss_reg = np.sum((y_hat - y_mean) ** 2)
+        ss_res = np.sum((y - y_hat) ** 2)
+
+        n, k = len(y), X.shape[1]
+        ms_reg = ss_reg / k
+        ms_res = ss_res / (n - k - 1)
+
+        f_stat = ms_reg / ms_res
+        significance_f = 1 - stats.f.cdf(f_stat, k, n - k - 1)
+
+        anova_df = pd.DataFrame({
+            "Source": ["Regression", "Residual", "Total"],
+            "df": [k, n - k - 1, n - 1],
+            "SS": [ss_reg, ss_res, ss_total],
+            "MS": [ms_reg, ms_res, ""],
+            "F": [f_stat, "", ""],
+            "Significance F": [significance_f, "", ""]
+        })
+
+        st.subheader("📊 ANOVA – Overall Model Significance")
+        st.dataframe(anova_df.round(6))
+
+        st.info("""
+📊 **ANOVA Interpretation**
+- Tests whether the model is statistically significant overall
+- If Significance F < α → model is significant
+""")
 
     # =====================================================
     # CLASSIFICATION
@@ -198,13 +301,15 @@ if uploaded_file:
 
         st.subheader("📊 Classification")
 
+        st.info("""
+📊 **Classification Objective**
+- Predicts categorical outcomes (e.g., Churn / No Churn)
+""")
+
         target = st.selectbox("Select Target Variable (Categorical)", cat_cols)
 
         X = df_clean.drop(columns=[target])
         y = df_clean[target]
-
-        st.subheader("📉 Target Distribution")
-        st.dataframe((y.value_counts(normalize=True) * 100).rename("Percentage"))
 
         X_train, X_test, y_train, y_test = train_test_split(
             X, y, test_size=0.2, random_state=42
@@ -218,21 +323,24 @@ if uploaded_file:
         preds = clf.predict(X_test)
 
         cm = confusion_matrix(y_test, preds)
-
-        st.subheader("Confusion Matrix")
-        st.dataframe(
-            pd.DataFrame(
-                cm,
-                index=[f"Actual {c}" for c in np.unique(y)],
-                columns=[f"Predicted {c}" for c in np.unique(y)]
-            )
+        cm_df = pd.DataFrame(
+            cm,
+            index=[f"Actual {cls}" for cls in np.unique(y)],
+            columns=[f"Predicted {cls}" for cls in np.unique(y)]
         )
 
-        st.write("Accuracy:", round(accuracy_score(y_test, preds), 3))
+        st.subheader("📊 Confusion Matrix (Actual vs Predicted)")
+        st.dataframe(cm_df)
 
-        report = classification_report(y_test, preds, output_dict=True)
-        st.subheader("📈 Classification Metrics")
-        st.dataframe(pd.DataFrame(report).transpose().round(3))
+        st.write("Accuracy:", accuracy_score(y_test, preds))
+        st.dataframe(pd.DataFrame(classification_report(y_test, preds, output_dict=True)).T)
+
+        st.info("""
+📈 **Classification Metrics**
+- Precision: Correctness of positive predictions
+- Recall: Ability to detect positives
+- F1-score: Balance between precision & recall
+""")
 
     # =====================================================
     # CLUSTERING
@@ -240,6 +348,12 @@ if uploaded_file:
     elif analysis_type == "Clustering":
 
         st.subheader("🔵 Clustering")
+
+        st.info("""
+🔵 **Clustering Objective**
+- Groups similar data points
+- No target variable is used
+""")
 
         k = st.slider("Select number of clusters", 2, 6, 3)
 
@@ -250,25 +364,23 @@ if uploaded_file:
 
         pca = PCA(n_components=2)
         X_pca = pca.fit_transform(X_scaled)
-        centroids_pca = pca.transform(kmeans.cluster_centers_)
+        centers = pca.transform(kmeans.cluster_centers_)
 
         fig, ax = plt.subplots(figsize=(7, 6))
-        ax.scatter(X_pca[:, 0], X_pca[:, 1], c=clusters, cmap="Set1", s=80)
-        ax.scatter(centroids_pca[:, 0], centroids_pca[:, 1], c="black", s=300, marker="X")
-
-        for i, (x, y_) in enumerate(centroids_pca):
-            ax.text(x, y_, f"Cluster {i}", fontsize=12, weight="bold")
-
-        ax.set_xlabel("Principal Component 1")
-        ax.set_ylabel("Principal Component 2")
-        ax.set_title("Cluster Visualization with Centroids")
+        ax.scatter(X_pca[:, 0], X_pca[:, 1], c=clusters, cmap="Set1")
+        ax.scatter(centers[:, 0], centers[:, 1], c="black", marker="X", s=200)
+        ax.set_xlabel("PC1")
+        ax.set_ylabel("PC2")
         st.pyplot(fig)
 
-        st.subheader("📊 Cluster Summary")
-        st.dataframe(
-            pd.DataFrame({"Cluster": clusters})
-            .value_counts()
-            .reset_index(name="Number of Records")
-        )
+        st.dataframe(pd.DataFrame({
+            "Component": ["PC1", "PC2"],
+            "Variance Explained (%)": pca.explained_variance_ratio_ * 100
+        }).round(2))
 
-    st.success("✔ Analysis completed successfully")
+        st.info("""
+🔍 **Clustering Explanation**
+- Clusters are formed using all standardized variables
+- PCA is used only for visualization
+- PC1 & PC2 summarize original variables
+""")
